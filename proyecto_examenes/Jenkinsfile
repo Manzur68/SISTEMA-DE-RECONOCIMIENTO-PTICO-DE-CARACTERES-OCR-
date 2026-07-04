@@ -1,14 +1,3 @@
-// Jenkinsfile — Opción B: VM2 como Agente Jenkins
-//
-// Arquitectura:
-//   VM1 (Jenkins Master) → stages: Checkout, Tests VM1, Deploy VM1, Tests E2E
-//   VM2 (Jenkins Agent)  → stages: Tests VM2, Deploy VM2
-//
-// Prerequisitos:
-//   - VM1: Jenkins corriendo en Docker, proyecto_examenes es repositorio Git
-//   - VM2: Java 17, Docker, Tesseract, venv en ~/venv-jenkins (setup-agent-vm2.sh)
-//   - Jenkins: nodo vm2-agent registrado y Online
-
 pipeline {
     agent none
 
@@ -24,8 +13,6 @@ pipeline {
     }
 
     stages {
-
-        // ── 1. Checkout ────────────────────────────────────────────────
         stage('Checkout') {
             agent { label 'built-in' }
             steps {
@@ -35,13 +22,10 @@ pipeline {
                 sh 'echo "Commit : $(git log --oneline -1)"'
             }
         }
-
-        // ── 2. Tests VM1 ────────────────────────────────────────────────
-        // Testcontainers levanta Postgres + RabbitMQ automáticamente en VM1
         stage('Tests VM1 — Unitarios + Integración') {
 	    agent { label 'built-in' }
 	    steps {
-		echo '🧪 [VM1] Ejecutando tests de api_gateway, ms_calificacion, ms_reporte...'
+		echo '[VM1] Ejecutando tests de api_gateway, ms_calificacion, ms_reporte...'
 		dir('vm1') {
 		    sh '''
 		        # Crear venv si no existe
@@ -73,19 +57,15 @@ pipeline {
 		    junit allowEmptyResults: true,
 		          testResults: 'vm1/test-results-vm1.xml'
 		}
-		success { echo '✅ Tests VM1 pasaron' }
-		failure { echo '❌ Tests VM1 fallaron' }
+		success { echo 'Tests VM1 pasaron' }
+		failure { echo 'Tests VM1 fallaron' }
 	    }
 	}
 
-        // ── 3. Tests VM2 ────────────────────────────────────────────────
-        // Corre directamente en VM2 (agente).
-        // Usa el venv ~/venv-jenkins creado por setup-agent-vm2.sh
-        // para evitar problemas de PATH y compatibilidad con Python 3.14.
         stage('Tests VM2 — Unitarios + Integración OCR') {
             agent { label 'vm2-agent' }
             steps {
-                echo '🧪 [VM2] Ejecutando tests de ms_preprocesamiento y ms_ocr...'
+                echo '[VM2] Ejecutando tests de ms_preprocesamiento y ms_ocr...'
                 sh '''
                     export PATH="$HOME/.local/bin:$PATH"
 
@@ -113,18 +93,16 @@ pipeline {
                     junit allowEmptyResults: true,
                           testResults: 'test-results-vm2.xml'
                 }
-                success { echo '✅ Tests VM2 pasaron' }
-                failure { echo '❌ Tests VM2 fallaron' }
+                success { echo 'Tests VM2 pasaron' }
+                failure { echo 'Tests VM2 fallaron' }
             }
         }
 
-        // ── 4. Deploy VM1 ────────────────────────────────────────────────
-        // Solo en rama main. Levanta todos los servicios de VM1.
         stage('Deploy VM1') {
             agent { label 'built-in' }
             when { branch 'main' }
             steps {
-                echo '🚀 [VM1] Desplegando api_gateway, ms_calificacion, ms_reporte...'
+                echo '[VM1] Desplegando api_gateway, ms_calificacion, ms_reporte...'
                 dir('vm1') {
                     sh '''
                         if [ ! -f .env.vm1 ]; then
@@ -144,7 +122,7 @@ pipeline {
                 }
             }
             post {
-                success { echo '✅ VM1 desplegada correctamente' }
+                success { echo 'VM1 desplegada correctamente' }
                 failure {
                     sh '''
                         echo "Logs de VM1:"
@@ -155,14 +133,11 @@ pipeline {
             }
         }
 
-        // ── 5. Deploy VM2 ────────────────────────────────────────────────
-        // Corre directamente en VM2 (agente).
-        // Jenkins se conecta a VM2 y ejecuta docker compose allá.
         stage('Deploy VM2') {
             agent { label 'vm2-agent' }
             when { branch 'main' }
             steps {
-                echo '🚀 [VM2] Desplegando ms_preprocesamiento y ms_ocr...'
+                echo '[VM2] Desplegando ms_preprocesamiento y ms_ocr...'
                 dir('vm2') {
                     sh '''
                         if [ ! -f .env.vm2 ]; then
@@ -184,7 +159,7 @@ pipeline {
                 }
             }
             post {
-                success { echo '✅ VM2 desplegada correctamente' }
+                success { echo 'VM2 desplegada correctamente' }
                 failure {
                     sh '''
                         echo "Logs de VM2:"
@@ -195,14 +170,11 @@ pipeline {
             }
         }
 
-        // ── 6. Tests E2E ─────────────────────────────────────────────────
-        // Corre en VM1. Prueba el sistema real desplegado
-        // haciendo peticiones HTTP reales al API Gateway.
         stage('Tests E2E — Sistema Real') {
             agent { label 'built-in' }
             when { branch 'main' }
             steps {
-                echo '🌐 [VM1] Ejecutando tests E2E contra el sistema desplegado...'
+                echo '[VM1] Ejecutando tests E2E contra el sistema desplegado...'
                 sh '''
                     export PATH="$HOME/.local/bin:$PATH"
 
@@ -225,7 +197,7 @@ pipeline {
                     junit allowEmptyResults: true,
                           testResults: 'test-results-e2e.xml'
                 }
-                success { echo '✅ Tests E2E pasaron — sistema operativo' }
+                success { echo 'Tests E2E pasaron — sistema operativo' }
                 failure {
                     sh '''
                         echo "Health check del sistema:"
@@ -244,7 +216,7 @@ pipeline {
             node('built-in') {
                 echo '''
 ╔══════════════════════════════════════════════╗
-║  ✅ Pipeline completado exitosamente          ║
+║    Pipeline completado exitosamente          ║
 ║     Todos los tests pasaron                  ║
 ║     VM1 y VM2 desplegadas y operativas       ║
 ╚══════════════════════════════════════════════╝
@@ -255,7 +227,7 @@ pipeline {
             node('built-in') {
                 echo '''
 ╔══════════════════════════════════════════════╗
-║  ❌ Pipeline FALLÓ                            ║
+║    Pipeline FALLÓ                            ║
 ║     Revisar los logs de cada stage           ║
 ╚══════════════════════════════════════════════╝
                 '''
