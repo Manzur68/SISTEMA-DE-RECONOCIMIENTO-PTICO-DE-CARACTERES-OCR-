@@ -263,7 +263,7 @@ Luego, desde el panel web de Jenkins (`http://<IP_VM1>:8080`), instalar los plug
 
 Proyecto desarrollado por estudiantes de la FIEE — UNI:
 
-- Luis
+- Luis Eusebio Quino Sanchez
 - Arteaga Choccare Fabrizzio Félix
 - Vivian
 - Manzur
