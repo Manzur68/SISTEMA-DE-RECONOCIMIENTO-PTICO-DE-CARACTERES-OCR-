@@ -1,0 +1,21 @@
+# ─────────────────────────────────────────────
+# requirements-vm2.txt
+# Dependencias para VM2: Preprocesamiento de imágenes + OCR
+# ─────────────────────────────────────────────
+
+# Mensajería RabbitMQ
+pika==1.3.2
+
+# OCR
+pytesseract==0.3.10          # Wrapper Python para Tesseract OCR
+# Nota: Tesseract debe estar instalado en el sistema (ver Dockerfile.vm2)
+
+# Procesamiento de imágenes
+opencv-python-headless==4.9.0.80  # OpenCV sin GUI (headless para servidores)
+Pillow==10.3.0               # PIL: manipulación de imágenes
+numpy==1.26.4                # Arrays numéricos (requerido por OpenCV)
+pdf2image==1.17.0            # Conversión PDF → imágenes (requiere poppler)
+# Nota: poppler-utils debe estar instalado en el sistema (ver Dockerfile.vm2)
+
+# Utilidades
+python-dotenv==1.0.1

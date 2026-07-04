@@ -1,0 +1,64 @@
+# ─────────────────────────────────────────────
+# Dockerfile.vm2
+# Imagen base para los servicios de VM2:
+#   - ms_preprocesamiento.py
+#   - ms_ocr.py
+#
+# Incluye Tesseract OCR, Poppler (para pdf2image) y OpenCV.
+# ─────────────────────────────────────────────
+
+FROM python:3.11-slim
+
+# Metadatos
+LABEL maintainer="arquitecto@proyecto-examenes.com"
+LABEL description="VM2 - Preprocesamiento OCR y Extracción de Texto"
+LABEL version="1.0.0"
+
+# Variables de entorno
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Directorio de trabajo
+WORKDIR /app
+
+# ── Instalar dependencias del sistema ──
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tesseract-ocr \
+    tesseract-ocr-spa \
+    tesseract-ocr-eng \
+    poppler-utils \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    libgl1 \
+    gcc \
+    curl \
+    libjpeg-dev \
+    libpng-dev \
+    libtiff-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Verificar instalación de Tesseract
+RUN tesseract --version && tesseract --list-langs
+
+# ── Instalar dependencias Python ──
+COPY requirements-vm2.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements-vm2.txt
+
+# ── Copiar código fuente de VM2 ──
+COPY ms_preprocesamiento.py .
+COPY ms_ocr.py .
+COPY rabbitmq_config.py .
+
+# Crear directorios de trabajo para procesamiento
+RUN mkdir -p /tmp/examenes_uploads /tmp/examenes_procesados
+
+# Variable de entorno para que pytesseract encuentre el binario
+ENV TESSERACT_CMD=/usr/bin/tesseract
+
+# El CMD se sobreescribe en docker-compose
+CMD ["python", "ms_preprocesamiento.py"]

@@ -1,0 +1,54 @@
+# ─────────────────────────────────────────────
+# Dockerfile.vm1
+# Imagen base para todos los servicios de VM1:
+#   - api_gateway.py
+#   - ms_calificacion.py
+#   - ms_reporte.py
+#
+# Usa una imagen Python slim para reducir el tamaño final.
+# ─────────────────────────────────────────────
+
+FROM python:3.11-slim
+
+# Metadatos
+LABEL maintainer="arquitecto@proyecto-examenes.com"
+LABEL description="VM1 - API Gateway, Calificación y Reportes"
+LABEL version="1.0.0"
+
+# Evitar buffering de salida (logs en tiempo real)
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Directorio de trabajo
+WORKDIR /app
+
+# Instalar dependencias del sistema
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Dependencias para psycopg2
+    libpq-dev \
+    gcc \
+    # Utilidades de diagnóstico
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalar dependencias Python
+COPY requirements-vm1.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements-vm1.txt
+
+# Copiar código fuente de VM1
+COPY api_gateway.py .
+COPY ms_calificacion.py .
+COPY ms_reporte.py .
+COPY rabbitmq_config.py .
+COPY database.py .
+
+# Crear directorio para uploads
+RUN mkdir -p /tmp/examenes_uploads
+
+# Exponer el puerto del API Gateway
+# (solo lo usa el contenedor api_gateway, pero se define aquí en la imagen base)
+EXPOSE 8000
+
+# El CMD se sobreescribe en docker-compose para cada servicio
+CMD ["python", "api_gateway.py"]

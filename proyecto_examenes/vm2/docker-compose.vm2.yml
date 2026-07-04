@@ -1,0 +1,103 @@
+# ─────────────────────────────────────────────
+# docker-compose.vm2.yml
+# Orquestación de VM2:
+#   Servicios: ms_preprocesamiento, ms_ocr
+#
+# VM2 se conecta al RabbitMQ alojado en VM1 a través de la IP externa.
+# No levanta ni RabbitMQ ni PostgreSQL propios.
+#
+# Uso:
+#   docker compose -f docker-compose.vm2.yml --env-file .env.vm2 up -d --build
+# ─────────────────────────────────────────────
+
+version: "3.9"
+
+# ── Redes ──────────────────────────────────────────────────────────────────
+networks:
+  red_vm2:
+    driver: bridge
+
+# ── Volúmenes compartidos entre servicios de VM2 ───────────────────────────
+volumes:
+  uploads_vm2:
+    driver: local
+  procesados_vm2:
+    driver: local
+
+# ── Servicios ──────────────────────────────────────────────────────────────
+services:
+
+  # ────────────────────────────────────────────
+  # 1. Microservicio de Preprocesamiento
+  # ────────────────────────────────────────────
+  ms_preprocesamiento:
+    build:
+      context: .
+      dockerfile: Dockerfile.vm2
+    image: proyecto-examenes/vm2:latest
+    container_name: ms_preprocesamiento_vm2
+    hostname: ms_preprocesamiento
+    restart: unless-stopped
+    networks:
+      - red_vm2
+    environment:
+      # RabbitMQ externo (IP de VM1)
+      RABBITMQ_HOST:     ${RABBITMQ_HOST}       # 192.168.18.97
+      RABBITMQ_PORT:     ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USER:     ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST:    ${RABBITMQ_VHOST:-/}
+      # Directorios de procesamiento
+      UPLOAD_DIR:     /app/uploads
+      PROCESSED_DIR:  /app/procesados
+      PDF_DPI:        ${PDF_DPI:-300}
+    volumes:
+      # Volumen compartido con ms_ocr para pasar imágenes preprocesadas
+      - uploads_vm2:/app/uploads
+      - procesados_vm2:/app/procesados
+    command: ["python", "ms_preprocesamiento.py"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import pika; print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ────────────────────────────────────────────
+  # 2. Microservicio OCR
+  # ────────────────────────────────────────────
+  ms_ocr:
+    image: proyecto-examenes/vm2:latest
+    container_name: ms_ocr_vm2
+    hostname: ms_ocr
+    restart: unless-stopped
+    networks:
+      - red_vm2
+    environment:
+      # RabbitMQ externo (IP de VM1)
+      RABBITMQ_HOST:     ${RABBITMQ_HOST}       # 192.168.18.97
+      RABBITMQ_PORT:     ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USER:     ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST:    ${RABBITMQ_VHOST:-/}
+      # Directorios de procesamiento (compartidos con ms_preprocesamiento)
+      UPLOAD_DIR:     /app/uploads
+      PROCESSED_DIR:  /app/procesados
+      # Configuración de Tesseract
+      TESSERACT_CMD:  /usr/bin/tesseract
+      TESSERACT_LANG: ${TESSERACT_LANG:-spa+eng}
+    volumes:
+      # Mismo volumen compartido: ms_preprocesamiento escribe, ms_ocr lee
+      - uploads_vm2:/app/uploads
+      - procesados_vm2:/app/procesados
+    depends_on:
+      - ms_preprocesamiento
+    command: ["python", "ms_ocr.py"]
+    # Limitar recursos CPU para OCR intensivo
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 512M

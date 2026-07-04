@@ -1,0 +1,204 @@
+# ─────────────────────────────────────────────
+# docker-compose.vm1.yml
+# Orquestación completa de VM1:
+#   Servicios propios: api_gateway, ms_calificacion, ms_reporte
+#   Infraestructura  : rabbitmq, postgres
+#
+# Uso:
+#   docker compose -f docker-compose.vm1.yml --env-file .env.vm1 up -d
+# ─────────────────────────────────────────────
+
+version: "3.9"
+
+# ── Redes ──────────────────────────────────────────────────────────────────
+networks:
+  red_vm1:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
+
+# ── Volúmenes persistentes ─────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+  uploads_data:
+    driver: local
+
+# ── Servicios ──────────────────────────────────────────────────────────────
+services:
+
+  # ────────────────────────────────────────────
+  # 1. RabbitMQ (Broker de mensajería)
+  # ────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: rabbitmq_vm1
+    hostname: rabbitmq
+    restart: unless-stopped
+    networks:
+      - red_vm1
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"          # Puerto AMQP (acceso externo para VM2)
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"   # Panel de administración web
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+      # Habilitar plugins útiles
+      RABBITMQ_ENABLED_PLUGINS_FILE: /etc/rabbitmq/enabled_plugins
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ────────────────────────────────────────────
+  # 2. PostgreSQL (Base de datos principal)
+  # ────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres_vm1
+    hostname: postgres
+    restart: unless-stopped
+    networks:
+      - red_vm1
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB}
+      # Configuraciones de rendimiento
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=es_PE.UTF-8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Script de inicialización (se ejecuta solo la primera vez)
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ────────────────────────────────────────────
+  # 3. API Gateway (Puerto expuesto al exterior)
+  # ────────────────────────────────────────────
+  api_gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.vm1
+    image: proyecto-examenes/vm1:latest
+    container_name: api_gateway_vm1
+    hostname: api_gateway
+    restart: unless-stopped
+    networks:
+      - red_vm1
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      # Base de datos
+      POSTGRES_HOST:     postgres
+      POSTGRES_PORT:     ${POSTGRES_PORT:-5432}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB}
+      # RabbitMQ (red interna Docker)
+      RABBITMQ_HOST:     rabbitmq
+      RABBITMQ_PORT:     ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USER:     ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST:    ${RABBITMQ_VHOST:-/}
+      # Configuración de negocio
+      OCR_CONFIDENCE_THRESHOLD: ${OCR_CONFIDENCE_THRESHOLD:-0.75}
+      NOTA_APROBATORIA:         ${NOTA_APROBATORIA:-10.5}
+      API_PORT:                 8000
+      UPLOAD_DIR:               /app/uploads
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    command: >
+      uvicorn api_gateway:app
+      --host 0.0.0.0
+      --port 8000
+      --workers 2
+      --log-level info
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ────────────────────────────────────────────
+  # 4. Microservicio de Calificación
+  # ────────────────────────────────────────────
+  ms_calificacion:
+    image: proyecto-examenes/vm1:latest
+    container_name: ms_calificacion_vm1
+    hostname: ms_calificacion
+    restart: unless-stopped
+    networks:
+      - red_vm1
+    environment:
+      POSTGRES_HOST:     postgres
+      POSTGRES_PORT:     ${POSTGRES_PORT:-5432}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB}
+      RABBITMQ_HOST:     rabbitmq
+      RABBITMQ_PORT:     ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USER:     ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST:    ${RABBITMQ_VHOST:-/}
+      OCR_CONFIDENCE_THRESHOLD: ${OCR_CONFIDENCE_THRESHOLD:-0.75}
+      NOTA_APROBATORIA:         ${NOTA_APROBATORIA:-10.5}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      api_gateway:
+        condition: service_healthy
+    command: ["python", "ms_calificacion.py"]
+
+  # ────────────────────────────────────────────
+  # 5. Microservicio de Reportes
+  # ────────────────────────────────────────────
+  ms_reporte:
+    image: proyecto-examenes/vm1:latest
+    container_name: ms_reporte_vm1
+    hostname: ms_reporte
+    restart: unless-stopped
+    networks:
+      - red_vm1
+    environment:
+      POSTGRES_HOST:     postgres
+      POSTGRES_PORT:     ${POSTGRES_PORT:-5432}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB}
+      RABBITMQ_HOST:     rabbitmq
+      RABBITMQ_PORT:     ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USER:     ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST:    ${RABBITMQ_VHOST:-/}
+      NOTA_APROBATORIA:  ${NOTA_APROBATORIA:-10.5}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      api_gateway:
+        condition: service_healthy
+    command: ["python", "ms_reporte.py"]

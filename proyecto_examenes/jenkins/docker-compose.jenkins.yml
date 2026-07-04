@@ -1,0 +1,36 @@
+# jenkins/docker-compose.jenkins.yml
+# Levanta Jenkins Master en VM1.
+#
+# Uso:
+#   cd ~/proyecto_examenes/jenkins
+#   sudo docker compose -f docker-compose.jenkins.yml up -d
+#
+# Panel web : http://IP_VM1:8080
+# Contraseña: sudo docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+
+version: "3.9"
+
+services:
+  jenkins:
+    image: jenkins/jenkins:lts-jdk17
+    container_name: jenkins
+    restart: unless-stopped
+    user: root
+    ports:
+      - "8080:8080"       # Panel web de Jenkins
+      - "50000:50000"     # Puerto para conexión de agentes (VM2 lo usará)
+    volumes:
+      # Datos persistentes: jobs, plugins, historial de builds, credenciales
+      - jenkins_home:/var/jenkins_home
+      # Socket Docker del host: Jenkins puede ejecutar docker build/compose
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Código fuente del proyecto montado como solo lectura
+      - /home/kali/proyecto_examenes:/home/kali/proyecto_examenes:ro
+    environment:
+      - JAVA_OPTS=-Djenkins.install.runSetupWizard=false -Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=true
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - TESTCONTAINERS_RYUK_DISABLED=true
+
+volumes:
+  jenkins_home:
+    driver: local
