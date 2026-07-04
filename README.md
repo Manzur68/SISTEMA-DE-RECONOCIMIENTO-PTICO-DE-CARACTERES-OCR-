@@ -265,7 +265,7 @@ Proyecto desarrollado por estudiantes de la FIEE — UNI:
 
 - Quino Sanchez Luis Eusebio
 - Arteaga Choccare Fabrizzio Félix
-- Vivian
+- Quispe Guevara Vivian Ruth
 - Rosado Silva Manzur Arturo
 
 ## 📚 Documentación adicional
